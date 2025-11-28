@@ -194,10 +194,13 @@ export const generateSample = async (
 
 
 // Simulate Database Insertion
-export const saveBatchToDatabase = async (taskName: string, count: number, type: TaskType) => {
+export const saveBatchToDatabase = async (taskName: string, count: number, type: TaskType, extraParams?: any) => {
     return new Promise<void>((resolve) => {
         setTimeout(() => {
             console.log(`[DB SUCCESS] Batch job '${taskName}' (${type}) with ${count} items saved to database.`);
+            if (extraParams) {
+                console.log('Batch Config:', extraParams);
+            }
             resolve();
         }, 1500);
     });

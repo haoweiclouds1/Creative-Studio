@@ -14,7 +14,9 @@ import {
     Loader2, 
     FileAudio, 
     ImageIcon,
-    Settings
+    Settings,
+    FolderInput,
+    Music
 } from 'lucide-react';
 
 const App: React.FC = () => {
@@ -38,9 +40,11 @@ const App: React.FC = () => {
     model: ''
   });
 
-  // Batch Specific State (Audio to Video)
+  // Batch Specific State
   const [batchCount, setBatchCount] = useState<number>(10);
   const [batchPrompt, setBatchPrompt] = useState('');
+  const [batchAudioDir, setBatchAudioDir] = useState('');
+  const [batchImageDir, setBatchImageDir] = useState('');
 
   // Files
   const [txtFile, setTxtFile] = useState<File | null>(null);
@@ -79,6 +83,8 @@ const App: React.FC = () => {
     setTxtFile(null);
     setBatchPrompt('');
     setBatchCount(10);
+    setBatchAudioDir('');
+    setBatchImageDir('');
   };
 
   const handleBack = () => {
@@ -113,18 +119,36 @@ const App: React.FC = () => {
     setIsGenerating(true);
     let count = 0;
 
-    // Special case for AudioToVideo: uses manual count + optional prompt
+    // Special case for AudioToVideo: uses manual count + directory references
     if (selectedTask.type === TaskType.AudioToVideo) {
         if (!batchCount || batchCount < 1) {
             alert("Please enter a valid generation count.");
             setIsGenerating(false);
             return;
         }
+        if (!batchAudioDir.trim() || !batchImageDir.trim()) {
+            alert("Please specify both Audio and Image directory names.");
+            setIsGenerating(false);
+            return;
+        }
         count = batchCount;
-        // Logic to send `batchPrompt` would go here if backend supported it, 
-        // for now we just log success with count.
     } 
-    // Standard case: File Upload
+    // ImageToVideo: Uses TXT for prompts + Image Directory
+    else if (selectedTask.type === TaskType.ImageToVideo) {
+         if (!txtFile) {
+            alert("Please upload a .txt file for prompts.");
+            setIsGenerating(false);
+            return;
+        }
+        if (!batchImageDir.trim()) {
+            alert("Please specify the Image Directory.");
+            setIsGenerating(false);
+            return;
+        }
+        const text = await txtFile.text();
+        count = text.split('\n').filter(line => line.trim().length > 0).length;
+    }
+    // Standard case: File Upload (Text to Image/Video)
     else {
         if (!txtFile) {
             alert("Please upload a .txt file.");
@@ -136,7 +160,13 @@ const App: React.FC = () => {
         count = text.split('\n').filter(line => line.trim().length > 0).length;
     }
     
-    await saveBatchToDatabase(taskName, count, selectedTask.type);
+    // Pass extra params
+    const batchParams = {
+        audioSourceDir: batchAudioDir,
+        imageSourceDir: batchImageDir
+    };
+
+    await saveBatchToDatabase(taskName, count, selectedTask.type, batchParams);
     
     setIsGenerating(false);
     alert("Batch job submitted successfully! Data sent to database.");
@@ -240,78 +270,11 @@ const App: React.FC = () => {
   const renderBatchUI = () => {
     if (!selectedTask) return null;
 
-    // Special Batch UI for Audio To Video
-    if (selectedTask.type === TaskType.AudioToVideo) {
-        return (
-             <div className="bg-slate-800/50 border border-slate-700 rounded-xl p-6 mb-6">
-                <h3 className="text-lg font-semibold text-white mb-4">Batch Configuration</h3>
-                
-                <div className="space-y-4">
-                     {/* Model Select (also in Batch) */}
-                    <div className="space-y-2">
-                        <label className="text-xs uppercase font-bold text-slate-400">Model</label>
-                        <select 
-                            value={params.model}
-                            onChange={(e) => setParams({...params, model: e.target.value})}
-                            className="w-full bg-slate-900 border border-slate-700 rounded-lg p-2 text-sm text-white focus:ring-2 focus:ring-indigo-500"
-                        >
-                            {TASK_MODELS[selectedTask.type]?.map(m => (
-                                <option key={m.id} value={m.id}>{m.name}</option>
-                            ))}
-                        </select>
-                    </div>
-
-                     {/* Resolution (also in Batch) */}
-                     <div className="space-y-2">
-                        <label className="text-xs uppercase font-bold text-slate-400">Resolution</label>
-                        <div className="flex bg-slate-900 rounded p-1 border border-slate-700">
-                             {['720p', '1080p'].map(res => (
-                                <button
-                                    key={res}
-                                    onClick={() => setParams({...params, resolution: res as any})}
-                                    className={`flex-1 py-1.5 text-xs font-medium rounded transition-colors ${params.resolution === res ? 'bg-indigo-600 text-white shadow' : 'text-slate-400 hover:text-white'}`}
-                                >
-                                    {res}
-                                </button>
-                             ))}
-                        </div>
-                     </div>
-
-                    <div className="space-y-2">
-                        <label className="text-xs uppercase font-bold text-slate-400">Prompt (Optional)</label>
-                        <textarea
-                            className="w-full bg-slate-900 border border-slate-700 rounded-lg p-3 text-sm text-white focus:ring-2 focus:ring-indigo-500"
-                            placeholder="Optional prompt template..."
-                            value={batchPrompt}
-                            onChange={(e) => setBatchPrompt(e.target.value)}
-                        />
-                    </div>
-
-                    <div className="space-y-2">
-                        <label className="text-xs uppercase font-bold text-indigo-400">Generation Quantity *</label>
-                        <input
-                            type="number"
-                            min="1"
-                            className="w-full bg-slate-900 border border-slate-700 rounded-lg p-3 text-sm text-white focus:ring-2 focus:ring-indigo-500"
-                            value={batchCount}
-                            onChange={(e) => setBatchCount(parseInt(e.target.value) || 0)}
-                        />
-                        <p className="text-xs text-slate-500">PaaS platform assets will be consumed sequentially.</p>
-                    </div>
-                </div>
-             </div>
-        );
-    }
-
-    // Standard Batch UI (File Upload)
     return (
-        <div className="bg-slate-800/50 border border-slate-700 rounded-xl p-6 mb-6">
-            <h3 className="text-lg font-semibold text-white mb-2">Batch Processing</h3>
-            <p className="text-sm text-slate-400 mb-4">
-                Upload a configuration file to process multiple items directly to the database.
-            </p>
-
-            <div className="space-y-4 mb-4">
+         <div className="bg-slate-800/50 border border-slate-700 rounded-xl p-6 mb-6">
+            <h3 className="text-lg font-semibold text-white mb-4">Batch Configuration</h3>
+            
+            <div className="space-y-6">
                  {/* Model Select (also in Batch) */}
                 <div className="space-y-2">
                     <label className="text-xs uppercase font-bold text-slate-400">Model</label>
@@ -325,11 +288,12 @@ const App: React.FC = () => {
                         ))}
                     </select>
                 </div>
-                 {/* Resolution (if video) */}
+
+                 {/* Resolution (also in Batch, for videos) */}
                  {selectedTask.type !== TaskType.TextToImage && (
                     <div className="space-y-2">
-                         <label className="text-xs uppercase font-bold text-slate-400">Resolution</label>
-                         <div className="flex bg-slate-900 rounded p-1 border border-slate-700">
+                        <label className="text-xs uppercase font-bold text-slate-400">Resolution</label>
+                        <div className="flex bg-slate-900 rounded p-1 border border-slate-700">
                                 {['720p', '1080p'].map(res => (
                                 <button
                                     key={res}
@@ -339,25 +303,131 @@ const App: React.FC = () => {
                                     {res}
                                 </button>
                                 ))}
-                         </div>
+                        </div>
                     </div>
                  )}
+
+                {/* --- AUDIO TO VIDEO BATCH UI --- */}
+                {selectedTask.type === TaskType.AudioToVideo && (
+                    <div className="space-y-4 animate-fade-in">
+                        <div className="space-y-2">
+                            <label className="text-xs uppercase font-bold text-slate-400">Prompt (Optional)</label>
+                            <textarea
+                                className="w-full bg-slate-900 border border-slate-700 rounded-lg p-3 text-sm text-white focus:ring-2 focus:ring-indigo-500"
+                                placeholder="Describe the motion or expression..."
+                                value={batchPrompt}
+                                onChange={(e) => setBatchPrompt(e.target.value)}
+                            />
+                        </div>
+
+                        {/* Directory Inputs */}
+                        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                            <div className="space-y-2">
+                                <label className="text-xs uppercase font-bold text-indigo-300 flex items-center">
+                                    <Music size={12} className="mr-1"/> Audio Directory
+                                </label>
+                                <input
+                                    type="text"
+                                    className="w-full bg-slate-900 border border-slate-700 rounded-lg p-3 text-sm text-white focus:ring-2 focus:ring-indigo-500"
+                                    placeholder="e.g. /assets/audio/voiceovers_v1"
+                                    value={batchAudioDir}
+                                    onChange={(e) => setBatchAudioDir(e.target.value)}
+                                />
+                            </div>
+                            <div className="space-y-2">
+                                <label className="text-xs uppercase font-bold text-indigo-300 flex items-center">
+                                    <ImageIcon size={12} className="mr-1"/> Image Directory
+                                </label>
+                                <input
+                                    type="text"
+                                    className="w-full bg-slate-900 border border-slate-700 rounded-lg p-3 text-sm text-white focus:ring-2 focus:ring-indigo-500"
+                                    placeholder="e.g. /assets/images/characters_v1"
+                                    value={batchImageDir}
+                                    onChange={(e) => setBatchImageDir(e.target.value)}
+                                />
+                            </div>
+                        </div>
+
+                        <div className="space-y-2">
+                            <label className="text-xs uppercase font-bold text-indigo-400">Generation Quantity *</label>
+                            <input
+                                type="number"
+                                min="1"
+                                className="w-full bg-slate-900 border border-slate-700 rounded-lg p-3 text-sm text-white focus:ring-2 focus:ring-indigo-500"
+                                value={batchCount}
+                                onChange={(e) => setBatchCount(parseInt(e.target.value) || 0)}
+                            />
+                            <p className="text-xs text-slate-500">System will sequentially pair assets from directories.</p>
+                        </div>
+                    </div>
+                )}
+
+                {/* --- IMAGE TO VIDEO BATCH UI --- */}
+                {selectedTask.type === TaskType.ImageToVideo && (
+                    <div className="space-y-4 animate-fade-in">
+                        <div className="space-y-2">
+                            <label className="text-xs uppercase font-bold text-indigo-300 flex items-center">
+                                <ImageIcon size={12} className="mr-1"/> Image Source Directory
+                            </label>
+                            <input
+                                type="text"
+                                className="w-full bg-slate-900 border border-slate-700 rounded-lg p-3 text-sm text-white focus:ring-2 focus:ring-indigo-500"
+                                placeholder="e.g. /assets/images/scenes_batch_01"
+                                value={batchImageDir}
+                                onChange={(e) => setBatchImageDir(e.target.value)}
+                            />
+                            <p className="text-xs text-slate-500">Directory containing start/end frames.</p>
+                        </div>
+
+                        <div className="space-y-2">
+                             <label className="text-xs uppercase font-bold text-slate-400">Prompt File (.txt)</label>
+                             <label className="flex flex-col items-center justify-center w-full h-24 border-2 border-slate-600 border-dashed rounded-lg cursor-pointer bg-slate-900 hover:bg-slate-800 transition-colors">
+                                <div className="flex flex-col items-center justify-center pt-2 pb-3">
+                                    <Upload className="w-6 h-6 mb-2 text-slate-400" />
+                                    <p className="text-xs text-slate-400">Upload prompt list</p>
+                                </div>
+                                <input type="file" className="hidden" accept=".txt" onChange={(e) => e.target.files && setTxtFile(e.target.files[0])} />
+                            </label>
+                            {txtFile && (
+                                <div className="mt-1 flex items-center text-xs text-indigo-400">
+                                    <CheckCircle size={12} className="mr-1"/>
+                                    {txtFile.name}
+                                </div>
+                            )}
+                        </div>
+                    </div>
+                )}
+
+                {/* --- STANDARD BATCH UI (Text to Image/Video) --- */}
+                {(selectedTask.type === TaskType.TextToImage || selectedTask.type === TaskType.TextToVideo) && (
+                     <div className="space-y-4 animate-fade-in">
+                        <div className="space-y-2">
+                             <label className="text-xs uppercase font-bold text-slate-400">Prompt File (.txt)</label>
+                             <label className="flex flex-col items-center justify-center w-full h-32 border-2 border-slate-600 border-dashed rounded-lg cursor-pointer bg-slate-800 hover:bg-slate-700 transition-colors">
+                                <div className="flex flex-col items-center justify-center pt-5 pb-6">
+                                    <Upload className="w-8 h-8 mb-3 text-slate-400" />
+                                    <p className="text-sm text-slate-400"><span className="font-semibold">Click to upload</span> .txt file</p>
+                                </div>
+                                <input type="file" className="hidden" accept=".txt" onChange={(e) => e.target.files && setTxtFile(e.target.files[0])} />
+                            </label>
+                            {txtFile && (
+                                <div className="mt-2 flex items-center text-sm text-indigo-400">
+                                    <CheckCircle size={14} className="mr-2"/>
+                                    {txtFile.name}
+                                </div>
+                            )}
+                        </div>
+                        
+                        <div className="bg-slate-900 border border-slate-800 rounded p-4 text-xs text-slate-500 font-mono">
+                            <p className="mb-2 uppercase font-bold text-slate-600">Sample Format (prompts.txt)</p>
+                            Cyberpunk detective in rain<br/>
+                            A calm meadow with flowers<br/>
+                            Abstract geometric shapes, 3d render...
+                        </div>
+                     </div>
+                )}
             </div>
-            
-            <label className="flex flex-col items-center justify-center w-full h-32 border-2 border-slate-600 border-dashed rounded-lg cursor-pointer bg-slate-800 hover:bg-slate-700 transition-colors">
-                <div className="flex flex-col items-center justify-center pt-5 pb-6">
-                    <Upload className="w-8 h-8 mb-3 text-slate-400" />
-                    <p className="text-sm text-slate-400"><span className="font-semibold">Click to upload</span> .txt file</p>
-                </div>
-                <input type="file" className="hidden" accept=".txt" onChange={(e) => e.target.files && setTxtFile(e.target.files[0])} />
-            </label>
-            {txtFile && (
-                <div className="mt-2 flex items-center text-sm text-indigo-400">
-                    <CheckCircle size={14} className="mr-2"/>
-                    {txtFile.name}
-                </div>
-            )}
-        </div>
+         </div>
     );
   };
 
@@ -552,19 +622,9 @@ const App: React.FC = () => {
                     <div className="flex flex-col h-full">
                          {renderBatchUI()}
 
-                         {/* Common Info Box */}
-                         {selectedTask?.type !== TaskType.AudioToVideo && (
-                            <div className="bg-slate-900 border border-slate-800 rounded p-4 text-xs text-slate-500 font-mono">
-                                <p className="mb-2 uppercase font-bold text-slate-600">Sample Format (prompts.txt)</p>
-                                Cyberpunk detective in rain<br/>
-                                A calm meadow with flowers<br/>
-                                Abstract geometric shapes, 3d render...
-                            </div>
-                         )}
-
                          <button 
                             onClick={handleStartBatch}
-                            disabled={isGenerating || (selectedTask?.type === TaskType.AudioToVideo ? !batchCount : !txtFile)}
+                            disabled={isGenerating || (selectedTask?.type === TaskType.AudioToVideo ? (!batchCount || !batchAudioDir || !batchImageDir) : (!txtFile && selectedTask?.type !== TaskType.ImageToVideo) || (selectedTask?.type === TaskType.ImageToVideo && (!txtFile || !batchImageDir)))}
                             className="w-full mt-auto bg-emerald-600 hover:bg-emerald-500 text-white font-bold py-4 rounded-xl shadow-lg shadow-emerald-900/20 transition-all flex items-center justify-center space-x-2 disabled:opacity-50"
                         >
                              {isGenerating ? <Loader2 className="animate-spin" /> : <Layers size={20} />}
@@ -581,6 +641,7 @@ const App: React.FC = () => {
                         <Layers size={64} className="mb-4 opacity-20" />
                         <p className="text-lg font-medium">Batch Mode Active</p>
                         <p className="text-sm">Results are processed in background and sent to database.</p>
+                        <p className="text-xs mt-2 text-slate-700">Targeting Model: {params.model}</p>
                     </div>
                 ) : (
                     <>

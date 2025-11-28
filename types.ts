@@ -34,6 +34,9 @@ export interface GenerationParams {
   endImage?: File;
   // Config
   sampleCount: number;
+  // Batch Config
+  audioSourceDir?: string;
+  imageSourceDir?: string;
 }
 
 export interface GeneratedResult {
